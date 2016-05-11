@@ -40,15 +40,13 @@ if (invocation === 'direct') {
  * Divides the given arr into chunks with the given max
  * length. Returns a new array containing the chunks.
  */
-function getChunks(arr, max) {
-  var chunksCount = parseInt(arr.length / max) + 1;
+function getNextChunk(arr, max) {
+  var chunk = [];
+  if(arr.length > 0) {
+    chunk = arr.splice(arr.length - max - 1, max);
+  }
 
-  var chunks = [];
-  _.times(chunksCount, count => {
-    chunks.push(_.slice(arr, count * max, (count + 1) * max));
-  });
-
-  return chunks;
+  return chunk;
 }
 
 function main(config, callback) {
@@ -352,33 +350,22 @@ function main(config, callback) {
 
             parser.on('end', function() {
               log('length of csv-array %d ' + filename.fileNameBase, lines.length);
-              var chunks = getChunks(lines, 10000);
-              log('length of csv-chunks %d ' + filename.fileNameBase, chunks.length);
 
               // only insert 1 chunk at once in order to avoid an out-of-memory error
-              var queue = async.queue(function (chunk, callback) {
-                collection.insertMany(chunk, function(e) {
-                  if (e) {
-                    log('ERROR during mongo insertMany chunk ' + filename.fileNameBase);
-                    handleError(e);
-                    callback(e);
-                  }
-                  callback();
-                });
-              }, 1);
-
-              queue.drain = function () {
-                log('DRAIN all items have been processed from ' + filename.fileNameBase);
-                cb();
-              };
-
-              queue.push(chunks, function (err) {
-                if (err) {
-                  log('ERROR SINGLE CALLBACK item processing ' + filename.fileNameBase);
+              (function insertNext() {
+                var chunk = getNextChunk(lines, 10000);
+                if (chunk.length > 0) {
+                  collection.insertMany(chunk, function(e) {
+                    if (e) {
+                      log('ERROR during mongo insertMany chunk ' + filename.fileNameBase);
+                      handleError(e);
+                    }
+                    insertNext();
+                  });
                 } else {
-                  // ignore we don't want to fill the screen with unnecessary information
+                  cb();
                 }
-              });
+              })();
             });
             parser.on('error', handleError);
             input.pipe(parser);
